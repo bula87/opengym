@@ -39,7 +39,7 @@ export function coachRoutes({ json, readBody, readSession, requireAdmin }) {
     // What the consent screen has to disclose, straight from the module that builds payloads,
     // so the screen cannot drift from what actually leaves (FR-09).
     'GET /api/coach/disclosure': async (req, res) => {
-      const cfg = cfgStore.load();
+      const cfg = cfgStore.effective();
       json(res, 200, {
         provider: cfg.provider,
         providerLabel: cfgStore.providerMeta(cfg).label,
@@ -98,7 +98,7 @@ export function coachRoutes({ json, readBody, readSession, requireAdmin }) {
 
     'GET /api/admin/coach': async (req, res) => {
       if (!requireAdmin(req, res)) return;
-      const cfg = cfgStore.load();
+      const cfg = cfgStore.effective();
       const adapter = adapterFor(cfg.provider);
       const check = adapter ? await adapter.check(cfg, cfgStore.jobEnv(process.env.TMPDIR || '/tmp')) : { ok: false, error: 'unknown provider' };
       const log = cfg.log || [];
@@ -107,8 +107,23 @@ export function coachRoutes({ json, readBody, readSession, requireAdmin }) {
         disabledByEnv: cfgStore.COACH_DISABLED,
         enabled: !!cfg.enabled,
         provider: cfg.provider,
-        providers: Object.entries(cfgStore.PROVIDERS).map(([id, p]) => ({ id, label: p.label, runtime: p.runtime, setupToken: !!p.setupToken, deviceLogin: !!p.deviceLogin, apiKey: !!p.apiKeyEnv })),
+        providers: Object.entries(cfgStore.PROVIDERS).map(([id, p]) => ({
+          id,
+          label: p.label,
+          runtime: p.runtime,
+          setupToken: !!p.setupToken,
+          deviceLogin: !!p.deviceLogin,
+          apiKey: !!p.apiKeyEnv,
+          apiKeyOptional: !!p.apiKeyOptional,
+          apiKeyHint: p.apiKeyHint || null,
+          apiKeyHelp: p.apiKeyHelp || null,
+          baseUrl: !!p.baseUrl,
+          baseUrlHelp: p.baseUrlHelp || null,
+          defaultModel: p.defaultModel || null
+        })),
         model: cfg.model,
+        openaiBaseUrl: cfg.openaiBaseUrl || '',
+        envLocks: cfgStore.envLocks(),
         caps: cfg.caps,
         runtime: { ok: !!check.ok, version: check.version || null, error: check.error || null },
         auth: await oauth.liveAuthStatus(),
@@ -131,7 +146,15 @@ export function coachRoutes({ json, readBody, readSession, requireAdmin }) {
         if (body.provider !== cfgStore.load().provider) patch.auth = null;
         patch.provider = body.provider;
       }
-      if (body.model !== undefined) patch.model = body.model ? String(body.model).slice(0, 80) : null;
+      if (body.model !== undefined) patch.model = body.model ? String(body.model).slice(0, 200) : null;
+      if (body.openaiBaseUrl !== undefined) {
+        if (!String(body.openaiBaseUrl || '').trim()) patch.openaiBaseUrl = null;
+        else {
+          const url = cfgStore.normalizeBaseUrl(body.openaiBaseUrl);
+          if (!url) return json(res, 400, { error: 'base URL must be an http(s) URL without credentials' });
+          patch.openaiBaseUrl = url;
+        }
+      }
       if (body.caps) {
         patch.caps = {
           perProfileDaily: Math.max(0, Math.min(200, +body.caps.perProfileDaily || 0)),

@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # node:22-alpine in web/Dockerfile and api/Dockerfile — CI must match production.
+      # Node 22, matching web/Dockerfile (Alpine build stage) and api/Dockerfile (Debian, for the Cursor CLI).
       - uses: actions/setup-node@v7
         with:
           node-version: 22

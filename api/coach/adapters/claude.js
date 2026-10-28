@@ -5,8 +5,14 @@
  * through the child environment, and keeps the model in a text-in / JSON-out lane: no tools,
  * no settings files, no MCP servers, and no persisted session history. */
 import { spawn } from 'node:child_process';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { unprivilegedIds } from './spawn.js';
+
+// Loaded on use, not at import. The Coach stays optional: a process that never selects Claude
+// does not need the SDK installed, and the admin card's runtime check is what reports it missing.
+async function loadQuery() {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  return query;
+}
 
 const SDK_VERSION = 'Claude Agent SDK 0.3.220';
 const OUTPUT_CAP = 4 * 1024 * 1024;
@@ -28,12 +34,22 @@ export default {
   runtime: 'Claude Agent SDK',
 
   async check() {
-    // Importing this module verifies the SDK package at boot/build time. The real round-trip in
-    // testRun() then verifies its bundled native runtime and the owner credential together.
-    return { ok: true, version: SDK_VERSION };
+    // The real round-trip in testRun() then verifies the bundled native runtime and the owner
+    // credential together. This only proves the SDK package can be loaded.
+    try {
+      await loadQuery();
+      return { ok: true, version: SDK_VERSION };
+    } catch {
+      return { ok: false, error: 'the Claude Agent SDK is not installed in this container' };
+    }
   },
 
   async invoke({ prompt, jobDir, env, model, timeoutMs }) {
+    let query;
+    try { query = await loadQuery(); }
+    catch (e) {
+      return { code: -1, text: '', stderr: e instanceof Error ? e.message : String(e), timedOut: false, spawnError: true };
+    }
     let text = '';
     let failure = '';
     let stderr = '';

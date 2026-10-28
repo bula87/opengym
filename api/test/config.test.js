@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tempData, sampleState } from './helpers.mjs';
 
+for (const name of [
+  'COACH_PROVIDER', 'COACH_ENABLED', 'COACH_MODEL',
+  'COACH_CURSOR_API_KEY', 'COACH_CURSOR_MODEL',
+  'COACH_OPENAI_BASE_URL', 'COACH_OPENAI_API_KEY', 'COACH_OPENAI_MODEL',
+  'COACH_GEMINI_API_KEY', 'COACH_GEMINI_MODEL', 'COACH_GEMINI_API_BASE'
+]) delete process.env[name];
+
 const DIR = tempData();
 const cfg = await import('../coach/config.js');
 const auth = await import('../coach/oauth.js');
@@ -57,20 +64,122 @@ test('a Claude Code setup token is encrypted and reaches only the Agent SDK envi
   assert.deepEqual(Object.keys(env).sort(), ['CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'HOME', 'PATH', 'TMPDIR']);
 });
 
-test('retired Gemini and Custom command configurations reset to unconfigured Claude', () => {
+test('the built-in providers are claude, codex, cursor, openai, gemini and the fixture', () => {
+  assert.deepEqual(Object.keys(cfg.PROVIDERS).sort(), ['claude', 'codex', 'cursor', 'fixture', 'gemini', 'openai']);
+});
+
+test('an unknown provider and a custom command reset to unconfigured Claude', () => {
   cfg.save({
     enabled: true,
-    provider: 'gemini',
+    provider: 'custom',
     customCommand: '/usr/local/bin/my-coach',
-    auth: { type: 'apikey', data: cfg.encrypt({ token: 'gemini-key' }) }
+    auth: { type: 'apikey', data: cfg.encrypt({ token: 'custom-key' }) }
   });
   cfg.reset();
   const current = cfg.load();
-  assert.deepEqual(Object.keys(cfg.PROVIDERS).sort(), ['claude', 'codex', 'fixture']);
   assert.equal(current.provider, 'claude');
   assert.equal(current.auth, null);
   assert.equal(Object.hasOwn(current, 'customCommand'), false);
   assert.equal(cfg.isConnected(), false);
+});
+
+test('a stored Gemini API key is encrypted and reaches only the Gemini job', () => {
+  cfg.save({ enabled: true, provider: 'gemini', auth: null, model: 'gemini-2.5-flash', openaiBaseUrl: null });
+  auth.setApiKey('AIza-secret');
+  assert.equal(cfg.load().provider, 'gemini');
+  assert.equal(cfg.isConnected(), true);
+  assert.equal(auth.authStatus().type, 'apikey');
+  const onDisk = fs.readFileSync(`${DIR}/coach.json`, 'utf8');
+  assert.ok(!onDisk.includes('AIza-secret'));
+  process.env.RP_ID = 'gym.example.com';
+  const env = cfg.jobEnv('/tmp/gemini-job');
+  assert.equal(env.GEMINI_API_KEY, 'AIza-secret');
+  assert.equal(env.RP_ID, undefined);
+  assert.equal(env.OPENAI_API_KEY, undefined);
+  assert.equal(env.CURSOR_API_KEY, undefined);
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+});
+
+test('Cursor accepts an API key and an environment key overrides it without being stored', () => {
+  cfg.save({ enabled: true, provider: 'cursor', auth: null, model: null, openaiBaseUrl: null });
+  auth.setApiKey('cursor-saved');
+  assert.equal(cfg.jobEnv('/tmp/cursor-job').CURSOR_API_KEY, 'cursor-saved');
+  process.env.COACH_CURSOR_API_KEY = 'cursor-from-env';
+  process.env.COACH_CURSOR_MODEL = 'composer-2';
+  try {
+    assert.equal(cfg.effective().model, 'composer-2');
+    assert.equal(cfg.jobEnv('/tmp/cursor-job').CURSOR_API_KEY, 'cursor-from-env');
+    assert.equal(auth.authStatus().type, 'env');
+    cfg.save({ log: cfg.load().log });
+    assert.ok(!fs.readFileSync(`${DIR}/coach.json`, 'utf8').includes('cursor-from-env'));
+  } finally {
+    delete process.env.COACH_CURSOR_API_KEY;
+    delete process.env.COACH_CURSOR_MODEL;
+  }
+});
+
+test('OpenAI-compatible is reachable with only a base URL, and the env key stays out of the file', () => {
+  cfg.save({ enabled: true, provider: 'openai', auth: null, model: null, openaiBaseUrl: 'https://api.openai.com/v1/' });
+  assert.equal(cfg.effective().openaiBaseUrl, 'https://api.openai.com/v1');
+  assert.equal(cfg.isConnected(), true);
+  assert.equal(auth.authStatus().state, 'not-required');
+  let env = cfg.jobEnv('/tmp/openai-job');
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1');
+  assert.equal(env.OPENAI_API_KEY, undefined);
+  process.env.COACH_OPENAI_API_KEY = 'sk-from-env';
+  process.env.COACH_OPENAI_MODEL = 'llama3.1';
+  try {
+    assert.equal(cfg.effective().model, 'llama3.1');
+    env = cfg.jobEnv('/tmp/openai-job');
+    assert.equal(env.OPENAI_API_KEY, 'sk-from-env');
+    assert.equal(auth.authStatus().type, 'env');
+    assert.ok(!fs.readFileSync(`${DIR}/coach.json`, 'utf8').includes('sk-from-env'));
+  } finally {
+    delete process.env.COACH_OPENAI_API_KEY;
+    delete process.env.COACH_OPENAI_MODEL;
+  }
+});
+
+test('COACH_PROVIDER switches the running provider without leaking the previous credential', () => {
+  cfg.save({
+    enabled: false,
+    provider: 'claude',
+    model: 'claude-sonnet',
+    auth: { type: 'cli-token', data: cfg.encrypt({ token: 'claude-setup-tok' }) }
+  });
+  process.env.COACH_ENABLED = '1';
+  process.env.COACH_PROVIDER = 'openai';
+  process.env.COACH_OPENAI_BASE_URL = 'http://127.0.0.1:9/v1';
+  process.env.COACH_MODEL = 'demo-model';
+  try {
+    assert.equal(cfg.isEnabled(), true);
+    assert.equal(cfg.effective().provider, 'openai');
+    assert.equal(cfg.effective().model, 'demo-model');
+    assert.equal(cfg.publicConfig().providerLabel, 'OpenAI-compatible');
+    const env = cfg.jobEnv('/tmp/switched');
+    assert.equal(env.OPENAI_BASE_URL, 'http://127.0.0.1:9/v1');
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+    assert.equal(env.ANTHROPIC_API_KEY, undefined);
+    assert.equal(env.CURSOR_API_KEY, undefined);
+    assert.equal(env.GEMINI_API_KEY, undefined);
+  } finally {
+    delete process.env.COACH_ENABLED;
+    delete process.env.COACH_PROVIDER;
+    delete process.env.COACH_OPENAI_BASE_URL;
+    delete process.env.COACH_MODEL;
+  }
+  assert.equal(cfg.effective().provider, 'claude');
+});
+
+test('base URLs have to be http(s) and cannot carry credentials', () => {
+  assert.equal(cfg.normalizeBaseUrl('https://api.openai.com/v1/'), 'https://api.openai.com/v1');
+  assert.equal(cfg.normalizeBaseUrl('https://openrouter.ai/api/v1/chat/completions'), 'https://openrouter.ai/api/v1');
+  assert.equal(cfg.normalizeBaseUrl('http://127.0.0.1:11434/v1'), 'http://127.0.0.1:11434/v1');
+  assert.equal(cfg.normalizeBaseUrl('http://user:pass@example.com/v1'), null);
+  assert.equal(cfg.normalizeBaseUrl('file:///etc/passwd'), null);
+  assert.equal(cfg.normalizeBaseUrl('ftp://example.com/v1'), null);
+  assert.equal(cfg.normalizeBaseUrl(''), null);
 });
 
 test('Codex uses its own ChatGPT CLI cache and never receives an API key', () => {

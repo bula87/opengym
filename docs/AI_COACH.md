@@ -54,17 +54,25 @@ provider dies, the engine carries on offline without skipping a beat.
 | --- | --- | --- | --- |
 | **Claude Code** | Claude Agent SDK | `claude setup-token` on a trusted machine, pasted into the admin card | [Claude setup guide](../Claude-setup-instructions.md) |
 | **OpenAI Codex** | Codex CLI (pinned, bundled) | ChatGPT device-code sign-in from the admin card | [ChatGPT / Codex setup guide](../ChatGPT-setup-instructions.md) |
+| **Cursor Agent** | Cursor CLI (pinned, bundled) | API key from the Cursor dashboard, in `.env` or the admin card | [Cursor setup guide](../Cursor-setup-instructions.md) |
+| **OpenAI-compatible** | HTTPS `chat/completions` | base URL, optional API key, and model — OpenAI, Ollama, LM Studio, OpenRouter, vLLM, … | [OpenAI-compatible setup guide](../OpenAI-compatible-setup-instructions.md) |
+| **Google Gemini** | Gemini API | API key and model, in `.env` or the admin card | [Gemini setup guide](../Gemini-setup-instructions.md) |
 | **Fixture** | in-repo fake | nothing — no AI account at all | walks the whole loop for demos and CI |
 
-Both runtimes are built into the `api` image, so a self-hoster installs nothing. Neither path
-needs an API key. openGym never handles a browser OAuth callback and never asks your users for
+Claude, Codex and Cursor are built into the `api` image, so a self-hoster installs nothing for
+those three. Gemini and the OpenAI-compatible provider are ordinary HTTPS calls from that same
+image. Claude and Codex do not use an API key. Cursor, Gemini and hosted OpenAI-compatible
+servers do. openGym never handles a browser OAuth callback and never asks your users for
 credentials.
 
-> **Note.** The design deck describes a provider-agnostic surface including Gemini and an
-> owner-supplied custom command. Those adapters were built and then retired before release; a
-> stored configuration pointing at either resets to an unconfigured Claude. Adding a provider is
-> still one adapter file plus one row in `api/coach/config.js` — nothing else branches on
-> provider identity.
+The admin card (**Settings → Admin → AI Coach**) is enough to switch providers. The same
+fields can be set in `.env` (`COACH_PROVIDER`, keys, base URL, model); a set variable overrides
+the card until you remove it and restart the api container. See `.env.example`.
+
+> **Note.** An owner-supplied custom command was built and then retired before release. A stored
+> configuration pointing at an unknown provider resets to an unconfigured Claude. Gemini is a
+> supported provider again, this time as the Gemini API rather than a CLI. Adding a provider is
+> still one adapter file plus one row in `api/coach/config.js`.
 
 ---
 
@@ -72,15 +80,16 @@ credentials.
 
 ### If you run the instance
 
-1. Enable the Coach and sign in a provider from **Settings → Admin → AI Coach**. No `.env`
-   editing, no restart.
+1. Enable the Coach and sign in a provider from **Settings → Admin → AI Coach**, or set
+   `COACH_PROVIDER` and the matching variables in `.env` and restart the api container.
 2. Set per-profile and instance-wide daily caps *before* inviting people — every plan or review
    is one session billed to the account you connected.
 3. The card shows runtime version, sign-in state, jobs run today and the last failure. It never
    shows anyone's intake answers, payloads or proposals.
 
 Full walkthrough: [Claude](../Claude-setup-instructions.md) · [ChatGPT / Codex](../ChatGPT-setup-instructions.md) ·
-[self-hosting §8](SELF_HOSTING.md#8-the-ai-coach-optional).
+[Cursor](../Cursor-setup-instructions.md) · [OpenAI-compatible](../OpenAI-compatible-setup-instructions.md) ·
+[Gemini](../Gemini-setup-instructions.md) · [self-hosting §8](SELF_HOSTING.md#8-the-ai-coach-optional).
 
 `COACH_DISABLED=1` is the kill switch: the Coach reports as disabled everywhere regardless of
 what is stored — useful for a fleet.
@@ -142,10 +151,13 @@ profile's everything.** Only the math and the effort leave the box.
 - **Validated before you see it.** Every answer is checked against a closed list of change types
   and the real exercise library — one repair round, then a clean failure. This validator, not the
   prompt, is the security boundary.
-- **Contained.** Jobs run as an unprivileged user that cannot read `./data`, with an environment
-  built from nothing rather than filtered. Codex's ChatGPT credential stays in its own private
-  cache (mounted separately from app data), never in `coach.json`; Claude's setup token is
-  encrypted at rest with a key derived from the instance secret.
+- **Contained.** CLI jobs (Claude, Codex, Cursor) run as an unprivileged user that cannot read
+  `./data`, with an environment built from nothing rather than filtered. Gemini and
+  OpenAI-compatible jobs are a single HTTPS request from the API process: no tools and no shell,
+  and the key travels only in that request. Codex's ChatGPT credential stays in its own private
+  cache (mounted separately from app data), never in `coach.json`; Claude's setup token, and any
+  API key saved from the admin card, are encrypted at rest with a key derived from the instance
+  secret. Keys set in `.env` are not written into `coach.json`.
 
 ## Deliberately out of scope
 

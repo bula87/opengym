@@ -158,33 +158,62 @@ downloaded media are untouched.
 ## 8. The AI Coach (optional)
 
 The Coach is an AI that designs training plans and reviews them against what your users
-actually log. It is **off on a fresh instance**, and turning it on is entirely a dashboard job
-— there is nothing to install and nothing to put in `.env`.
+actually log. It is **off on a fresh instance**. Turn it on from the admin card, or set
+`COACH_ENABLED=1` in `.env`. Nothing else has to be installed: the api image already contains
+the Claude Agent SDK, the Codex CLI and the Cursor Agent CLI.
 
 ### What you are signing up for
 
 The account is yours: every plan or review is one session on the provider account you connect,
-so budget for it and use the caps below. The built-in choices are Claude's official Agent SDK
-and a pinned OpenAI Codex CLI. Neither requires an API key: Claude uses an owner-created setup
-token, while Codex uses ChatGPT's device-code sign-in and stores its refreshable CLI cache only
-in the private `./data/codex` volume. Use the Codex option only on a trusted, owner-controlled
-server; that cache is equivalent to a password and must not be exposed to users or public code.
+so budget for it and use the caps below. The choices are:
+
+- **Claude Code** — an owner-created setup token. No API key.
+- **OpenAI Codex CLI** — ChatGPT device-code sign-in. The refreshable CLI cache lives only in
+  the private `./data/codex` volume. Use this only on a trusted, owner-controlled server; that
+  cache is equivalent to a password.
+- **Cursor Agent** — a Cursor API key, in the admin card or `COACH_CURSOR_API_KEY`.
+- **OpenAI-compatible** — any server that speaks `/chat/completions` (OpenAI, Ollama, LM Studio,
+  OpenRouter, vLLM, …). Set the base URL, an optional API key, and the model.
+- **Google Gemini** — a Gemini API key and a model id.
+- **Fixture** — a canned provider for trying the loop with no account.
+
+`host.docker.internal` points at the machine running Docker, so a local Ollama or LM Studio is
+reachable at `http://host.docker.internal:<port>/v1`.
 
 ### Turning it on
 
+From the dashboard:
+
 1. Open **Settings → Admin dashboard → AI Coach** and flip the switch.
-2. Pick one built-in provider:
+2. Pick a provider and connect it:
    - **Claude Code**: on a trusted computer where you use Claude Code, run `claude setup-token`.
      Complete its normal browser sign-in, copy the printed token, then choose **Add CLI token**
      in openGym. The token is encrypted at rest and passed only to the isolated Agent SDK job.
    - **OpenAI Codex CLI**: choose **Sign in with ChatGPT**, then use the link and one-time code
-     on a trusted browser or iPad. This is Codex's device-code login; openGym never receives a
-     ChatGPT password, API key, browser callback, or access token. Its private CLI cache lives
-     in `./data/codex` and is refreshed by Codex itself.
+     on a trusted browser. openGym never receives a ChatGPT password, API key, browser callback,
+     or access token. Its private CLI cache lives in `./data/codex`.
+   - **Cursor Agent**: choose **Use an API key** and paste a key from the Cursor dashboard.
+   - **OpenAI-compatible**: set **API base URL**, optionally **Set API key**, and the model.
+   - **Google Gemini**: choose **Use an API key** and set the model (the default is
+     `gemini-2.5-flash`).
 3. Hit **Test the Coach**. Green means a real round-trip to the selected provider worked.
 
+From `.env` instead (or as well — a set variable overrides the card until you remove it and
+restart the api service):
+
+```bash
+COACH_ENABLED=1
+COACH_PROVIDER=openai
+COACH_OPENAI_BASE_URL=http://host.docker.internal:11434/v1
+COACH_OPENAI_MODEL=llama3.1
+```
+
+The full list is in `.env.example`. API keys set there are not copied into `coach.json`.
+
 The card then shows the runtime, credential state, jobs run today and the last failure, if any.
-For the complete no-API-key Codex flow, see [ChatGPT-setup-instructions.md](../ChatGPT-setup-instructions.md).
+Guides: [Claude](../Claude-setup-instructions.md) · [ChatGPT / Codex](../ChatGPT-setup-instructions.md) ·
+[Cursor](../Cursor-setup-instructions.md) · [OpenAI-compatible](../OpenAI-compatible-setup-instructions.md) ·
+[Gemini](../Gemini-setup-instructions.md).
 
 ### Limits
 
@@ -206,9 +235,10 @@ people's training notes are different powers.
 
 Only the profile that asked, and only: their plan, the training window under review, their
 weigh-ins and goal weight, their intake answers, and their unit/language/effort scale. Names,
-passkeys, push subscriptions and every other profile's data stay here. The job itself runs as
-an unprivileged user that cannot read `./data` at all — the CLI sees its own payload and
-nothing else.
+passkeys, push subscriptions and every other profile's data stay here. Claude, Codex and Cursor
+run the job as an unprivileged user that cannot read `./data` — the process sees its own payload
+and nothing else. Gemini and OpenAI-compatible providers send that same allowlisted payload as
+one HTTPS request and have no tools or filesystem access.
 
 ### Trying it without an account
 
@@ -220,7 +250,7 @@ connecting anything that costs money.
 
 | Symptom | Fix |
 |---|---|
-| "The Coach couldn't sign in to its provider" | For Claude, replace the setup token. For Codex, disconnect and complete **Sign in with ChatGPT** again. |
+| "The Coach couldn't sign in to its provider" | For Claude, replace the setup token. For Codex, disconnect and complete **Sign in with ChatGPT** again. For Cursor, Gemini, or a hosted OpenAI-compatible server, replace the API key. |
 | "The Coach isn't installed properly" | A bundled provider runtime is missing — rebuild the API image with `docker compose up -d --build`. |
 | "The Coach is resting" | A daily cap was hit. Raise it, or wait. |
 | "answered with something the app couldn't use" | The model produced output that failed validation twice. Usually transient; try again. |
