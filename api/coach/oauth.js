@@ -11,7 +11,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import {
-  load, save, encrypt, decrypt, providerMeta,
+  save, encrypt, decrypt, providerMeta, effective, readEnv,
   codexHome, codexAuthFile, ensureCodexHome, hasCodexAuth
 } from './config.js';
 import { run, unprivilegedIds } from './adapters/spawn.js';
@@ -163,7 +163,7 @@ export function setApiKey(k) {
 /** Remove the provider's credential. Codex itself clears its cache; the exact auth file is a
  * final fallback if the CLI is no longer installed but the owner explicitly requested logout. */
 export async function disconnect() {
-  if (load().provider === 'codex') {
+  if (effective().provider === 'codex') {
     await stopDeviceLogin();
     await run(CODEX_BIN, ['logout', '-c', FILE_STORE], { env: codexEnv(), cwd: codexHome(), timeoutMs: 20000 });
     try { fs.unlinkSync(codexAuthFile()); } catch { /* already absent is disconnected */ }
@@ -172,9 +172,12 @@ export async function disconnect() {
   save({ auth: null });
 }
 
+const connectedEnv = () => ({ state: 'connected', type: 'env', account: null, connectedAt: null, expiresAt: null });
+
 /** Admin-card view of the credential. Never returns the token itself. */
 export function authStatus() {
-  const cfg = load();
+  const cfg = effective();
+  const env = readEnv();
   if (cfg.provider === 'fixture') return { state: 'not-required' };
   if (cfg.provider === 'codex') {
     if (!hasCodexAuth()) return { state: 'disconnected' };
@@ -182,11 +185,21 @@ export function authStatus() {
     try { connectedAt = fs.statSync(codexAuthFile()).mtime.toISOString(); } catch { /* presence was checked above */ }
     return { state: 'connected', type: 'chatgpt-cli', account: null, connectedAt, expiresAt: null };
   }
-  if (!cfg.auth) return { state: 'disconnected' };
+  // A key in the environment overrides a saved one and is not something Disconnect can remove.
+  if (cfg.provider === 'cursor' && env.cursorKey) return connectedEnv();
+  if (cfg.provider === 'gemini' && env.geminiKey) return connectedEnv();
+  if (cfg.provider === 'openai' && env.openaiKey && cfg.openaiBaseUrl) return connectedEnv();
+  if (!cfg.auth) {
+    if (cfg.provider === 'openai' && cfg.openaiBaseUrl) return { state: 'not-required' };
+    return { state: 'disconnected' };
+  }
   const auth = decrypt(cfg.auth.data);
   if (!auth) return { state: 'unreadable' };   // ./data restored without its secret file
   if (cfg.provider === 'claude' && cfg.auth.type !== 'cli-token') {
     return { state: 'replace-required', type: cfg.auth.type, connectedAt: cfg.auth.connectedAt };
+  }
+  if ((cfg.provider === 'cursor' || cfg.provider === 'gemini' || cfg.provider === 'openai') && cfg.auth.type !== 'apikey') {
+    return { state: 'disconnected' };
   }
   if (cfg.auth.expired) return { state: 'expired', account: cfg.auth.account, connectedAt: cfg.auth.connectedAt };
   return {
@@ -200,7 +213,7 @@ export function authStatus() {
  * later job cannot authenticate. */
 export async function liveAuthStatus() {
   const status = authStatus();
-  if (load().provider !== 'codex' || status.state !== 'connected') return status;
+  if (effective().provider !== 'codex' || status.state !== 'connected') return status;
   const r = await run(CODEX_BIN, ['login', 'status', '-c', FILE_STORE], {
     env: codexEnv(), cwd: codexHome(), timeoutMs: 20000
   });

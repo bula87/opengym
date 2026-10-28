@@ -9,6 +9,9 @@
 import { run } from './spawn.js';
 import claude from './claude.js';
 import { CODEX_BIN } from './codex-cli.js';
+import cursor from './cursor.js';
+import openai from './openai.js';
+import gemini from './gemini.js';
 
 const CODEX_DISABLED_FEATURES = [
   'auth_elicitation', 'shell_tool', 'unified_exec', 'shell_snapshot', 'browser_use',
@@ -61,6 +64,6 @@ const fixture = {
   }
 };
 
-const ADAPTERS = { claude, codex, fixture };
+const ADAPTERS = { claude, codex, cursor, openai, gemini, fixture };
 export const adapterFor = provider => ADAPTERS[provider] || null;
 export default ADAPTERS;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tempData, sampleState } from './helpers.mjs';
+import { tempData, sampleState, daysAgo } from './helpers.mjs';
 
 tempData();
 const payload = await import('../coach/payload.js');
@@ -51,7 +51,7 @@ test('review payload carries the plan, the window, effort and aggregates', () =>
 test('a stalling exercise shows up in the aggregates the way the engine counts it', () => {
   const S = sampleState();
   // Three sessions that all fell short of the 10-rep target.
-  S.workouts = ['2026-07-06', '2026-07-13', '2026-07-20'].map((d, i) => ({
+  S.workouts = [daysAgo(21), daysAgo(14), daysAgo(7)].map((d, i) => ({
     id: 'w' + i, d, name: 'A', start: 0, end: 60000, entries: [{
       id: '0001', target: { sets: 3, reps: 10, weight: 20 },
       sets: [{ w: 20, r: 9, done: true }, { w: 20, r: 8, done: true }, { w: 20, r: 7, done: true }]
@@ -66,7 +66,7 @@ test('a stalling exercise shows up in the aggregates the way the engine counts i
 test('a set that was never ticked off is a miss, not a gap', () => {
   const S = sampleState();
   S.workouts = [{
-    id: 'w1', d: '2026-07-20', name: 'A', start: 0, end: 60000, entries: [{
+    id: 'w1', d: daysAgo(7), name: 'A', start: 0, end: 60000, entries: [{
       id: '0001', target: { sets: 3, reps: 10, weight: 20 },
       sets: [{ w: 20, r: 10, done: true }, { w: 20, r: 10, done: true }, { w: 20, r: 10, done: false }]
     }]

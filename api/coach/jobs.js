@@ -220,7 +220,7 @@ async function execute(job) {
   const S = readState(job.uid);
   if (!S) return finish(job, { outcome: 'failed', errorClass: 'nostate' });
 
-  const cfg = cfgStore.load();
+  const cfg = cfgStore.effective();
   const adapter = adapterFor(cfg.provider);
   if (!adapter) return finish(job, { outcome: 'failed', errorClass: 'off' });
 
@@ -336,7 +336,7 @@ export function resolvePending(uid, { accepted = [], rejected = [], dismissed = 
 
 /** A2's "Test the Coach": the real adapter, a trivial round-trip, no user data anywhere near it. */
 export async function testRun() {
-  const cfg = cfgStore.load();
+  const cfg = cfgStore.effective();
   const adapter = adapterFor(cfg.provider);
   if (!adapter) return { ok: false, error: 'no provider configured' };
   const jobDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coach-test-'));

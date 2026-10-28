@@ -32,6 +32,10 @@ services:
       - PORT=3000            # internal port (nginx proxies here) — do not change
       - DATA_DIR=/data
       - COACH_CODEX_HOME=/codex
+    # Lets an OpenAI-compatible Coach on the host (Ollama, LM Studio, vLLM) be reached
+    # as http://host.docker.internal:<port>/v1 from this container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data         # users, passkeys, per-user state, session secret — BACK THIS UP
       # ChatGPT/Codex refresh tokens are kept separate from app data and mounted only into the

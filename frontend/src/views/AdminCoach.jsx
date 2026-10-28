@@ -65,8 +65,9 @@ export default function AdminCoach() {
   return <div className="card" style={{ borderColor: live ? 'var(--acc)' : undefined }}>
     <div className="row between" style={{ marginBottom: 8 }}>
       <h2 style={{ margin: 0 }}>AI Coach</h2>
-      <Switch checked={!!d.enabled} disabled={busy} onChange={v => patch({ enabled: v })} />
+      <Switch checked={!!d.enabled} disabled={busy || !!d.envLocks?.enabled} onChange={v => patch({ enabled: v })} />
     </div>
+    {d.envLocks?.enabled && <div className="dim small" style={{ marginBottom: 8 }}>Enabled by <code>COACH_ENABLED</code> in the environment.</div>}
 
     {!d.enabled && <div className="muted small">Off. Users see no Coach anywhere in the app.</div>}
 
@@ -87,20 +88,34 @@ export default function AdminCoach() {
       <h4 className="sec" style={{ marginTop: 4 }}>Provider</h4>
       <div className="row" style={{ flexWrap: 'wrap', gap: 7, marginBottom: 10 }}>
         {d.providers.map(p => <button key={p.id} className={'chip' + (p.id === d.provider ? ' on' : '')}
-          disabled={busy} onClick={() => patch({ provider: p.id })}>{p.label}</button>)}
+          disabled={busy || !!d.envLocks?.provider} onClick={() => patch({ provider: p.id })}>{p.label}</button>)}
       </div>
+      {d.envLocks?.provider && <div className="dim small" style={{ marginBottom: 10 }}>Provider is set by <code>COACH_PROVIDER</code>. Unset it to choose here.</div>}
+
+      {meta.baseUrl && <>
+        <h4 className="sec">API base URL</h4>
+        <TextField defaultValue={d.openaiBaseUrl || ''} placeholder="https://api.openai.com/v1"
+          disabled={busy || !!d.envLocks?.openaiBaseUrl}
+          onBlur={e => e.target.value !== (d.openaiBaseUrl || '') && patch({ openaiBaseUrl: e.target.value })} />
+        <div className="dim small" style={{ margin: '6px 0 10px', lineHeight: 1.45 }}>{meta.baseUrlHelp}</div>
+      </>}
 
       {/* credential */}
       {(meta.setupToken || meta.deviceLogin || meta.apiKey) && <>
         <h4 className="sec">Credential</h4>
-        {d.auth?.state === 'connected' ? <>
+        {(d.auth?.state === 'connected' || d.auth?.state === 'not-required') ? <>
           <div className="small muted" style={{ marginBottom: 8 }}>
-            Connected{d.auth.account ? ' as ' + d.auth.account : ''} via {credentialLabel(d.auth.type)} · {rel(d.auth.connectedAt)}
+            {d.auth.state === 'not-required'
+              ? 'No API key saved. Local servers that do not check a key can stay this way.'
+              : <>Connected{d.auth.account ? ' as ' + d.auth.account : ''} via {credentialLabel(d.auth.type)}{d.auth.connectedAt ? ' · ' + rel(d.auth.connectedAt) : ''}</>}
           </div>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             <Button size="sm" icon="check" disabled={busy} onClick={test}>Test the Coach</Button>
-            <Button size="sm" danger disabled={busy} onClick={disconnect}>Disconnect</Button>
+            {meta.apiKey && d.auth.state === 'not-required' && <Button size="sm" icon="lock" disabled={busy}
+              onClick={() => openSheet(close => <ApiKeySheet close={close} onDone={load} label={meta.label} help={meta.apiKeyHelp} hint={meta.apiKeyHint} />)}>Set API key</Button>}
+            {d.auth.state === 'connected' && d.auth.type !== 'env' && <Button size="sm" danger disabled={busy} onClick={disconnect}>Disconnect</Button>}
           </div>
+          {d.auth.type === 'env' && <div className="dim small" style={{ marginTop: 8 }}>This key comes from the environment. Remove that variable to disconnect it.</div>}
         </> : <>
           {d.auth?.state === 'expired' && <div className="small" style={{ color: 'var(--red)', marginBottom: 8 }}>The stored credential expired — connect again.</div>}
           {d.auth?.state === 'replace-required' && <div className="small" style={{ color: 'var(--red)', marginBottom: 8 }}>
@@ -115,7 +130,7 @@ export default function AdminCoach() {
             {meta.deviceLogin && <Button size="sm" variant="primary" icon="key" disabled={busy}
               onClick={() => openSheet(close => <ChatGPTLoginSheet close={close} onDone={load} label={meta.label} />)}>Sign in with ChatGPT</Button>}
             {meta.apiKey && !meta.setupToken && <Button size="sm" icon="lock" disabled={busy}
-              onClick={() => openSheet(close => <ApiKeySheet close={close} onDone={load} label={meta.label} />)}>Use an API key</Button>}
+              onClick={() => openSheet(close => <ApiKeySheet close={close} onDone={load} label={meta.label} help={meta.apiKeyHelp} hint={meta.apiKeyHint} />)}>{meta.apiKeyOptional ? 'Set API key' : 'Use an API key'}</Button>}
           </div>
         </>}
       </>}
@@ -133,8 +148,10 @@ export default function AdminCoach() {
       <div className="dim small" style={{ marginBottom: 10 }}>0 = no limit. Every job is one session on your provider account.</div>
 
       <h4 className="sec">Model</h4>
-      <TextField defaultValue={d.model || ''} placeholder="(the provider default)"
-        onBlur={e => e.target.value !== (d.model || '') && patch({ model: e.target.value })} />
+      <TextField defaultValue={d.model || ''} placeholder={meta.defaultModel || '(the provider default)'}
+        disabled={busy || !!d.envLocks?.model}
+        onBlur={e => !d.envLocks?.model && e.target.value !== (d.model || '') && patch({ model: e.target.value })} />
+      {d.envLocks?.model && <div className="dim small" style={{ marginTop: 6 }}>Model is set in the environment.</div>}
 
       {d.lastError && <>
         <h4 className="sec">Last failure</h4>
@@ -161,7 +178,7 @@ const authLabel = a => ({
 }[a?.state] || '—')
 
 const credentialLabel = type => ({
-  'cli-token': 'Claude Code setup token', 'chatgpt-cli': 'ChatGPT CLI login', oauth: 'legacy token', apikey: 'API key'
+  'cli-token': 'Claude Code setup token', 'chatgpt-cli': 'ChatGPT CLI login', oauth: 'legacy token', apikey: 'API key', env: 'an environment variable'
 }[type] || 'credential')
 
 /* ------------------------------- setup token -------------------------------- */
@@ -247,7 +264,7 @@ function ChatGPTLoginSheet({ close, onDone, label }) {
   </>
 }
 
-function ApiKeySheet({ close, onDone, label }) {
+function ApiKeySheet({ close, onDone, label, help, hint }) {
   const toast = useUI(s => s.toast)
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -262,9 +279,9 @@ function ApiKeySheet({ close, onDone, label }) {
   return <>
     <h3>{label} API key</h3>
     <div className="muted small" style={{ lineHeight: 1.5, marginBottom: 12 }}>
-      Stored encrypted on this server and passed to the provider runtime only while a job runs. It is never shown again and never leaves the server.
+      {help || 'Stored encrypted on this server and passed to the provider runtime only while a job runs. It is never shown again and never leaves the server.'}
     </div>
-    <TextField value={key} autoFocus type="password" placeholder="sk-…" onChange={e => setKey(e.target.value)} />
+    <TextField value={key} autoFocus type="password" placeholder={hint || 'paste API key'} onChange={e => setKey(e.target.value)} />
     <div style={{ height: 12 }} />
     <Button variant="primary" disabled={busy || !key.trim()} onClick={save}>Save key</Button>
     <div style={{ height: 8 }} />

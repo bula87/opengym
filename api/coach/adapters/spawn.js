@@ -57,6 +57,9 @@ export function run(cmd, argv, { stdin = '', env = {}, cwd, timeoutMs = 300000, 
     };
     child.on('error', e => finish(-1, e));
     child.on('close', code => finish(code));
+    // A CLI that exits without reading (for example `agent --version`) closes the pipe first.
+    // That EPIPE is not a failed run; 'close' already carries the exit code.
+    child.stdin.on('error', () => {});
     try { child.stdin.end(stdin); } catch { /* child already gone; 'close' handles it */ }
   });
 }

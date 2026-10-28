@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### More Coach providers
+
+The Coach can also run on **Cursor Agent** (an API key and the bundled CLI), **any
+OpenAI-compatible server** (base URL, optional API key, model — OpenAI, Ollama, LM Studio,
+OpenRouter, vLLM and the rest), and the **Google Gemini API** (API key and model). Switch them
+from **Settings → Admin → AI Coach** or from `.env`. Claude Code and ChatGPT / Codex are
+unchanged, and the Coach stays off until it is enabled.
+
 ### The AI Coach
 
 openGym could always progress a plan. It could never *write* one, and it never looked at the
